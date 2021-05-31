@@ -1,0 +1,87 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © kubik-rubik
+
+//@version=4
+
+strategy(title="HMA+Trend Strategy", shorttitle="HMA+Trend", overlay = true)
+
+// SETTINGS
+trend_filter_act        = input(title = 'Enable Filter',        group = 'Filter Settings', inline = 'FS1', defval = false)
+trend_filter_sidezone   = input(title = 'Filter SideZone',      group = 'Filter Settings', inline = 'FS1', defval = true)
+trend_filter_index      = input(title = 'Filter Index ------',  group = 'Filter Settings', inline = 'FS2', defval = 9, minval = 1)
+trend_filter_wma_len    = input(title = 'Filter Lenth ------',  group = 'Filter Settings', inline = 'FS2', defval = 9, minval = 1)
+trend_filter_greenzone  = input(title = 'Filter GreenZone',     group = 'Filter Settings', inline = 'FS3', defval = 25)
+trend_filter_redzone    = input(title = 'Filter RedZone ---',   group = 'Filter Settings', inline = 'FS3', defval = -25)
+
+slow_hma_index          = input(title = 'Slow HMA Index',       group = 'HMA Settings',     inline = 'HS1', defval = 5, minval = 1)
+slow_hma_src            = input(title = 'Slow HMA Source',      group = 'HMA Settings',     inline = 'HS1', defval = open)
+slow_hma_len            = input(title = 'Slow HMA Lenth',       group = 'HMA Settings',     inline = 'HS1', defval = 50, minval = 1)
+fast_hma_index          = input(title = 'Fast HMA Index',       group = 'HMA Settings',     inline = 'HS2', defval = 1, minval = 1)
+fast_hma_src            = input(title = 'Fast HMA Source',      group = 'HMA Settings',     inline = 'HS2', defval = open)
+fast_hma_len            = input(title = 'Fast HMA Lenth',       group = 'HMA Settings',     inline = 'HS2', defval = 19, minval = 1)
+
+start_trailing_perc     = input(title = 'Start Trailing',       group = 'Trading',          inline = 'T1',  defval = 0.1, minval = 0.1, step = 0.05)
+sl_offset_perc          = input(title = 'Trailing Offset',      group = 'Trading',          inline = 'T1',  defval = 0.05, minval = 0, step = 0.01)
+tp_perc                 = input(title = 'TP, %',                group = 'Trading',          inline = 'T2',  defval = 1, minval = 0, step = 0.1)
+sl_perc                 = input(title = 'SL, %',                group = 'Trading',          inline = 'T2',  defval = 1, minval = 0, step = 0.1)
+
+startTime = input(defval = timestamp("01 Jan 2000 00:00 +0000"), title = "Start Time", type = input.time, inline = "time1")
+finalTime = input(defval = timestamp("31 Dec 2099 23:59 +0000"), title = "Final Time", type = input.time, inline = "time1")
+
+// CMO&WMA COUNT
+trend_filter_abs_val    = abs(close - close[1])
+trend_filter_sma_abs    = sma(trend_filter_abs_val, trend_filter_index)
+trend_filter_len        = close - close[trend_filter_index]
+trend_filter_res        = 100 * (trend_filter_len / (trend_filter_sma_abs * trend_filter_index))
+wma_cmo                 = wma(trend_filter_res, trend_filter_wma_len)
+
+// HMA COUNT
+slow_hma = wma(2 * wma(slow_hma_src, slow_hma_len / 2) - wma(slow_hma_src, slow_hma_len), round(sqrt(slow_hma_len)))
+fast_hma = wma(2 * wma(fast_hma_src, fast_hma_len / 2) - wma(fast_hma_src, fast_hma_len), round(sqrt(fast_hma_len)))
+
+// FILTER CONDITIONS
+greenzone = wma_cmo > trend_filter_greenzone
+redzone = wma_cmo < trend_filter_redzone
+sidezone = greenzone == false and redzone == false and trend_filter_sidezone == true ? true : false
+trend = 0
+trend := greenzone == true ? 1 : redzone == true ? 2 : sidezone == true ? 3 : trend[1]
+bar_color = trend == 1 ? color.green : trend == 2 ? color.red : color.blue
+
+// HMA CONDITIONS
+slow_hma_color = slow_hma > slow_hma[slow_hma_index] ? color.green : color.red
+fast_hma_color = fast_hma > fast_hma[fast_hma_index] ? color.green : color.red
+
+// TRADE CONDITIONS
+LongCondition = trend_filter_act == true ? (bar_color == color.green and fast_hma_color == color.green and slow_hma_color == color.green ? true : false) : (fast_hma_color == color.green and slow_hma_color == color.green ? true : false)
+ShortCondition = trend_filter_act == true ? (bar_color == color.red and fast_hma_color == color.red and slow_hma_color == color.red ? true : false) : (fast_hma_color == color.red and slow_hma_color == color.red ? true : false)
+truetime = time > startTime and time < finalTime
+
+// // TP/SL
+// pos_price = strategy.position_avg_price
+// tick = syminfo.mintick
+// cl_long_stop = open - (open * (sl_perc / 100))
+// cl_short_stop = open + (open * (sl_perc / 100))
+// long_trail_price = open + (open * (start_trailing_perc / 100))
+// short_trail_price = open - (open * (start_trailing_perc / 100))
+// sl_offset = sl_offset_perc *1000 * tick
+
+// TRADE
+strategy.entry('Long', strategy.long, 1, alert_message = 'long', when = LongCondition and truetime)
+strategy.exit('Long TP/SL', 'Long', alert_message = 'flat', when = LongCondition == false)
+// strategy.exit('Long TP/SL', 'Long', trail_price = long_trail_price, trail_offset = sl_offset_perc)
+// strategy.close('Long' , when = LongCondition == false)
+
+strategy.entry('Short', strategy.short, 1, alert_message = 'short', when = ShortCondition and truetime)
+strategy.exit('Short TP/SL', 'Short', alert_message = 'flat', when = ShortCondition == false)
+// strategy.exit('Short TP/SL', 'Short', trail_price = short_trail_price, trail_offset = sl_offset_perc)
+// strategy.close('Short' , when = ShortCondition == false)
+
+if time > finalTime
+    strategy.close_all()
+    strategy.cancel("Long")
+    strategy.cancel("Short")
+
+// PLOT
+barcolor(color = trend_filter_act == true ? bar_color : na)
+plot(slow_hma, title = 'SlowHMA', color = slow_hma_color)
+plot(fast_hma, title = 'SlowHMA', color = fast_hma_color)
